@@ -44,3 +44,23 @@ echo 5 |cargo run --bin aoc_program -- program_day5.txt
 7704130
 mem[0]=314
 ```
+
+## Day 9
+
+```bash
+echo 1 | time cargo run --release --bin aoc_program -- program_day9.txt
+    Finished release [optimized] target(s) in 0.02s
+     Running `target/release/aoc_program program_day9.txt`
+2171728567
+mem[0]=1102
+cargo run --release --bin aoc_program -- program_day9.txt  0.11s user 0.02s system 99% cpu 0.125 total
+```
+
+```bash
+echo 2 | time cargo run --release --bin aoc_program -- program_day9.txt
+    Finished release [optimized] target(s) in 0.02s
+     Running `target/release/aoc_program program_day9.txt`
+49815
+mem[0]=1102
+cargo run --release --bin aoc_program -- program_day9.txt  0.11s user 0.01s system 99% cpu 0.120 total
+```

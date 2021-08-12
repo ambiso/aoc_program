@@ -1,10 +1,12 @@
-pub type Cell = i64;
 use std::{
     io::{BufRead, Lines, Write},
     ops::{Index, IndexMut},
 };
 
 use thiserror::Error;
+use tracing::trace;
+
+pub type Cell = i64;
 
 #[derive(Error, Debug)]
 pub enum MachineError {
@@ -47,6 +49,29 @@ impl<'a> IndexMut<usize> for Mem<'a> {
     }
 }
 
+fn get_param_address(
+    mem: &Mem,
+    ip: usize,
+    rel_base: usize,
+    param: usize,
+    param_mode: Cell,
+) -> Result<usize, MachineError> {
+    let param_location = ip + param;
+    if param_mode == 0 {
+        // Position mode
+        let addr = mem[param_location];
+        trace!(param_location=param_location, addr=addr, "Position mode");
+        return Ok(addr as usize);
+    }
+    if param_mode == 2 {
+        // Relative mode
+        let addr = mem[ip + param] + rel_base as Cell;
+        trace!(param_location=param_location, addr=addr, rel_base=rel_base, "Position mode");
+        return Ok(addr as usize);
+    }
+    Err(MachineError::InvalidParameterMode)
+}
+
 fn get_param(
     mem: &Mem,
     ip: usize,
@@ -54,19 +79,11 @@ fn get_param(
     param: usize,
     param_mode: Cell,
 ) -> Result<Cell, MachineError> {
-    if param_mode == 0 {
-        // position mode
-        return Ok(mem[mem[ip + param] as usize]);
-    }
     if param_mode == 1 {
         // immediate mode
         return Ok(mem[ip + param]);
     }
-    if param_mode == 2 {
-        // Relative mode
-        return Ok(mem[(mem[ip + param] + rel_base as i64) as usize]);
-    }
-    Err(MachineError::InvalidParameterMode)
+    get_param_address(mem, ip, rel_base, param, param_mode).map(|a| mem[a])
 }
 
 pub trait IO {
@@ -74,7 +91,8 @@ pub trait IO {
     fn output(&mut self, v: Cell) -> Result<(), MachineError>;
 }
 
-pub struct LineIO<B: BufRead, Wr: Write> {
+#[derive(Debug)]
+pub struct LineIO<B, Wr> {
     rd: Lines<B>,
     wr: Wr,
 }
@@ -104,6 +122,7 @@ impl<Rd: BufRead, Wr: Write> IO for LineIO<Rd, Wr> {
     }
 }
 
+#[derive(Debug)]
 pub struct EmptyIO {}
 
 impl IO for EmptyIO {
@@ -116,6 +135,7 @@ impl IO for EmptyIO {
     }
 }
 
+#[derive(Debug)]
 pub struct VecIO {
     pub pos: usize,
     pub input: Vec<Cell>,
@@ -170,6 +190,22 @@ pub const OP_EQ: Cell = 8;
 pub const OP_ARB: Cell = 9;
 pub const OP_HALT: Cell = 99;
 
+fn opcode_name(opcode: Cell) -> &'static str {
+    match opcode {
+        OP_ADD => "Add",
+        OP_MUL => "Mul",
+        OP_INPUT => "Input",
+        OP_OUTPUT => "Output",
+        OP_JT => "JumpTrue",
+        OP_JF => "JumpFalse",
+        OP_LT => "LessThan",
+        OP_EQ => "Equals",
+        OP_ARB => "AdjustRelativeBase",
+        OP_HALT => "Halt",
+        _ => "UnknownOpCode"
+    }
+}
+
 pub fn execute<'a>(
     mem: &'a mut Vec<Cell>,
     io: &mut dyn IO,
@@ -181,31 +217,32 @@ pub fn execute<'a>(
         let op = mem[ip];
         let mode1 = (op / 100) % 10;
         let mode2 = (op / 1000) % 10;
-        // let mode3 = (op / 10000) % 10;
+        let mode3 = (op / 10000) % 10;
         let op = op % 100;
-        println!("{}", op);
+        trace!(op_code=op, op_name=opcode_name(op));
         match op {
             OP_ADD | OP_MUL => {
                 let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
-                let tgt = mem[ip + 3] as usize;
-                println!("{} + {} => {}", a, b, tgt);
+                let tgt = get_param_address(&mut mem, ip, rel_base, 3, mode3)?;
                 mem[tgt] = match op {
                     OP_ADD => a + b,
                     OP_MUL => a * b,
                     _ => unreachable!(),
                 };
+                trace!(assign=mem[tgt], location=tgt);
                 ip += 4;
             }
             OP_INPUT => {
-                let tgt = mem[ip + 1] as usize;
+                let tgt = get_param_address(&mut mem, ip, rel_base, 1, mode1)?;
                 mem[tgt] = io.input()?;
+                trace!(read=mem[tgt]);
                 ip += 2;
             }
             OP_OUTPUT => {
                 let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 io.output(a)?;
-                println!("=> {}", a);
+                trace!(write=a);
                 ip += 2;
             }
             OP_JT => {
@@ -213,8 +250,10 @@ pub fn execute<'a>(
                 let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
                 if a != 0 {
                     ip = b as usize;
+                    trace!(ip=ip, "Jump if true taken");
                 } else {
                     ip += 3;
+                    trace!(ip=ip, "Jump if true NOT taken");
                 }
             }
             OP_JF => {
@@ -222,32 +261,36 @@ pub fn execute<'a>(
                 let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
                 if a == 0 {
                     ip = b as usize;
+                    trace!(ip=ip, "Jump if false taken");
                 } else {
                     ip += 3;
+                    trace!(ip=ip, "Jump if false NOT taken");
                 }
             }
             OP_LT => {
                 let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
-                let tgt = mem[ip + 3] as usize;
+                let tgt = get_param_address(&mut mem, ip, rel_base, 3, mode3)?;
                 mem[tgt] = (a < b) as Cell;
+                trace!(assign=mem[tgt], location=tgt);
                 ip += 4;
             }
             OP_EQ => {
                 let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
-                let tgt = mem[ip + 3] as usize;
+                let tgt = get_param_address(&mut mem, ip, rel_base, 3, mode3)?;
                 mem[tgt] = (a == b) as Cell;
+                trace!(assign=mem[tgt], location=tgt);
                 ip += 4;
             }
             OP_ARB => {
                 let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 if a < 0 {
-                    rel_base -= a as usize;
+                    rel_base -= (-a) as usize;
                 } else {
                     rel_base += a as usize;
                 }
-                println!("New rel_base={}", rel_base);
+                trace!(increment=a, rel_base=rel_base);
                 ip += 2;
             }
             OP_HALT => {
@@ -274,8 +317,10 @@ pub fn parse_mem(rd: &mut dyn BufRead) -> Vec<Cell> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use tracing_test::traced_test;
 
     #[test]
+    #[traced_test]
     fn test_add() {
         assert_eq!(
             execute(&mut vec![1, 0, 0, 0, 99], &mut EmptyIO {}).unwrap(),
