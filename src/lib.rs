@@ -1,4 +1,4 @@
-pub type Cell = u32;
+pub type Cell = i32;
 pub type Mem = Vec<Cell>;
 use std::io::BufRead;
 
@@ -18,7 +18,7 @@ pub enum MachineError {
     IOParse,
 }
 
-fn get_param(mem: &Mem, ip: usize, param: usize, param_mode: u32) -> Result<u32, MachineError> {
+fn get_param(mem: &Mem, ip: usize, param: usize, param_mode: Cell) -> Result<Cell, MachineError> {
     if param_mode == 0 {
         // position mode
         return Ok(mem[mem[ip + param] as usize]);
@@ -147,7 +147,7 @@ pub fn execute<'a>(mem: &'a mut Mem, io: &mut impl IO) -> Result<&'a mut Mem, Ma
     Ok(mem)
 }
 
-pub fn parse_mem() -> Vec<u32> {
+pub fn parse_mem() -> Vec<Cell> {
     let stdin = std::io::stdin();
     return stdin
         .lock()
