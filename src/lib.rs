@@ -1,6 +1,8 @@
 pub type Cell = i64;
-pub type Mem = Vec<Cell>;
-use std::io::{BufRead, Lines, Write};
+use std::{
+    io::{BufRead, Lines, Write},
+    ops::{Index, IndexMut},
+};
 
 use thiserror::Error;
 
@@ -18,7 +20,40 @@ pub enum MachineError {
     IOParse,
 }
 
-fn get_param(mem: &Mem, ip: usize, rel_base: usize, param: usize, param_mode: Cell) -> Result<Cell, MachineError> {
+struct Mem<'a> {
+    v: &'a mut Vec<Cell>,
+}
+
+impl<'a> Mem<'a> {
+    fn new(v: &'a mut Vec<Cell>) -> Self {
+        Self { v }
+    }
+}
+
+impl<'a> Index<usize> for Mem<'a> {
+    type Output = Cell;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.v.get(index).unwrap_or(&0)
+    }
+}
+
+impl<'a> IndexMut<usize> for Mem<'a> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        if index >= self.v.len() {
+            self.v.extend(vec![0; index - self.v.len() + 1]);
+        }
+        &mut self.v[index]
+    }
+}
+
+fn get_param(
+    mem: &Mem,
+    ip: usize,
+    rel_base: usize,
+    param: usize,
+    param_mode: Cell,
+) -> Result<Cell, MachineError> {
     if param_mode == 0 {
         // position mode
         return Ok(mem[mem[ip + param] as usize]);
@@ -29,7 +64,7 @@ fn get_param(mem: &Mem, ip: usize, rel_base: usize, param: usize, param_mode: Ce
     }
     if param_mode == 2 {
         // Relative mode
-        return Ok(mem[rel_base + param - 1])
+        return Ok(mem[(mem[ip + param] + rel_base as i64) as usize]);
     }
     Err(MachineError::InvalidParameterMode)
 }
@@ -135,7 +170,11 @@ pub const OP_EQ: Cell = 8;
 pub const OP_ARB: Cell = 9;
 pub const OP_HALT: Cell = 99;
 
-pub fn execute<'a>(mem: &'a mut Mem, io: &mut dyn IO) -> Result<&'a mut Mem, MachineError> {
+pub fn execute<'a>(
+    mem: &'a mut Vec<Cell>,
+    io: &mut dyn IO,
+) -> Result<&'a mut Vec<Cell>, MachineError> {
+    let mut mem = Mem::new(mem);
     let mut ip = 0;
     let mut rel_base = 0;
     loop {
@@ -144,12 +183,13 @@ pub fn execute<'a>(mem: &'a mut Mem, io: &mut dyn IO) -> Result<&'a mut Mem, Mac
         let mode2 = (op / 1000) % 10;
         // let mode3 = (op / 10000) % 10;
         let op = op % 100;
-        println!("OP {} @ {} | {}", op, ip, rel_base);
+        println!("{}", op);
         match op {
             OP_ADD | OP_MUL => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
-                let b = get_param(mem, ip, rel_base, 2, mode2)?;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
+                let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
                 let tgt = mem[ip + 3] as usize;
+                println!("{} + {} => {}", a, b, tgt);
                 mem[tgt] = match op {
                     OP_ADD => a + b,
                     OP_MUL => a * b,
@@ -163,13 +203,14 @@ pub fn execute<'a>(mem: &'a mut Mem, io: &mut dyn IO) -> Result<&'a mut Mem, Mac
                 ip += 2;
             }
             OP_OUTPUT => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 io.output(a)?;
+                println!("=> {}", a);
                 ip += 2;
             }
             OP_JT => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
-                let b = get_param(mem, ip, rel_base, 2, mode2)?;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
+                let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
                 if a != 0 {
                     ip = b as usize;
                 } else {
@@ -177,8 +218,8 @@ pub fn execute<'a>(mem: &'a mut Mem, io: &mut dyn IO) -> Result<&'a mut Mem, Mac
                 }
             }
             OP_JF => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
-                let b = get_param(mem, ip, rel_base, 2, mode2)?;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
+                let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
                 if a == 0 {
                     ip = b as usize;
                 } else {
@@ -186,26 +227,27 @@ pub fn execute<'a>(mem: &'a mut Mem, io: &mut dyn IO) -> Result<&'a mut Mem, Mac
                 }
             }
             OP_LT => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
-                let b = get_param(mem, ip, rel_base, 2, mode2)?;
-                let tgt = mem[ip + 3];
-                mem[tgt as usize] = (a < b) as Cell;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
+                let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
+                let tgt = mem[ip + 3] as usize;
+                mem[tgt] = (a < b) as Cell;
                 ip += 4;
             }
             OP_EQ => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
-                let b = get_param(mem, ip, rel_base, 2, mode2)?;
-                let tgt = mem[ip + 3];
-                mem[tgt as usize] = (a == b) as Cell;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
+                let b = get_param(&mut mem, ip, rel_base, 2, mode2)?;
+                let tgt = mem[ip + 3] as usize;
+                mem[tgt] = (a == b) as Cell;
                 ip += 4;
             }
             OP_ARB => {
-                let a = get_param(mem, ip, rel_base, 1, mode1)?;
+                let a = get_param(&mut mem, ip, rel_base, 1, mode1)?;
                 if a < 0 {
                     rel_base -= a as usize;
                 } else {
                     rel_base += a as usize;
                 }
+                println!("New rel_base={}", rel_base);
                 ip += 2;
             }
             OP_HALT => {
@@ -216,7 +258,7 @@ pub fn execute<'a>(mem: &'a mut Mem, io: &mut dyn IO) -> Result<&'a mut Mem, Mac
             }
         }
     }
-    Ok(mem)
+    Ok(mem.v)
 }
 
 pub fn parse_mem(rd: &mut dyn BufRead) -> Vec<Cell> {
@@ -369,6 +411,39 @@ mod test {
 
     #[test]
     fn test_arb() {
-        assert_eq!(execute(&mut vec![109, 7, 1201, 0, 0, 0, 99, -1337], &mut EmptyIO {}).unwrap()[0], -1337);
+        assert_eq!(
+            execute(&mut vec![109, 7, 1201, 0, 0, 0, 99, -1337], &mut EmptyIO {}).unwrap()[0],
+            -1337
+        );
+    }
+
+    #[test]
+    fn test_quine() {
+        let mut prog = vec![
+            109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99,
+        ];
+        let orig_prog = prog.clone();
+        let mut vio = VecIO::new(vec![]);
+        execute(&mut prog, &mut vio).unwrap();
+        assert_eq!(orig_prog, vio.output);
+    }
+
+    #[test]
+    fn test_large_num() {
+        let n = 1125899906842624;
+        let mut prog = vec![104, n, 99];
+        let mut vio = VecIO::new(vec![]);
+        execute(&mut prog, &mut vio).unwrap();
+        assert_eq!(vec![n], vio.output);
+    }
+
+    #[test]
+    fn test_large_num2() {
+        let a = 34915192;
+        let b = 34915192;
+        let mut prog = vec![1102, a, b, 7, 4, 7, 99, 0];
+        let mut vio = VecIO::new(vec![]);
+        execute(&mut prog, &mut vio).unwrap();
+        assert_eq!(vec![a * b], vio.output);
     }
 }
