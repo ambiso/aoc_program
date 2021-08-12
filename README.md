@@ -5,14 +5,14 @@ I'm only doing the Intcode computer challenges here.
 ## Day 2
 
 ```bash
-$ cargo run --bin aoc_program -- input_day2.txt
+$ cargo run --bin aoc_program -- program_day2.txt
     Finished dev [unoptimized + debuginfo] target(s) in 0.00s
      Running `target/debug/aoc_program`
 mem[0]=3760627
 ```
 
 ```bash
-$ cargo run --bin inputfinder -- input_day2.txt
+$ cargo run --bin inputfinder -- program_day2.txt
     Finished dev [unoptimized + debuginfo] target(s) in 0.00s
      Running `target/debug/inputfinder`
 Noun=71 Verb=95; 7195
@@ -21,9 +21,9 @@ Noun=71 Verb=95; 7195
 ## Day 5
 
 ```bash
-echo 1 | cargo run --bin aoc_program -- input_day5.txt
+echo 1 | cargo run --bin aoc_program -- program_day5.txt
     Finished dev [unoptimized + debuginfo] target(s) in 0.01s
-     Running `target/debug/aoc_program input_day5.txt`
+     Running `target/debug/aoc_program program_day5.txt`
 0
 0
 0
@@ -35,4 +35,12 @@ echo 1 | cargo run --bin aoc_program -- input_day5.txt
 0
 12896948
 mem[0]=3
+```
+
+```bash
+echo 5 |cargo run --bin aoc_program -- program_day5.txt
+    Finished dev [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/aoc_program program_day5.txt`
+7704130
+mem[0]=314
 ```
