@@ -1,7 +1,8 @@
 use aoc_program::{execute, parse_mem, EmptyIO};
 
 fn main() {
-    let mem = parse_mem();
+    let stdin = std::io::stdin();
+    let mem = parse_mem(&mut stdin.lock());
     let target = 19690720;
     for noun in 0..100 {
         for verb in 0..100 {
